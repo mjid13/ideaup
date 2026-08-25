@@ -121,6 +121,7 @@ export function calculateRevenueMix(
 
   const recurringArpu = recurring.reduce((sum, s) => sum + s.perCustomer, 0);
   const oneTimeRevenuePerNewCustomer = oneTime.reduce((sum, s) => sum + s.perCustomer, 0);
+  const blendedAnnualRevenuePerCustomer = recurringArpu * 12 + oneTimeRevenuePerNewCustomer;
 
   const monthlyRecurringRevenue = recurring.reduce((sum, s) => sum + s.metrics.monthlyRevenue, 0);
   const monthlyOneTimeRevenue = oneTime.reduce((sum, s) => sum + s.metrics.monthlyRevenue, 0);
@@ -148,6 +149,7 @@ export function calculateRevenueMix(
     streams: streamMetrics,
     recurringArpu,
     oneTimeRevenuePerNewCustomer,
+    blendedAnnualRevenuePerCustomer,
     monthlyRecurringRevenue,
     monthlyOneTimeRevenue,
     totalMonthlyRevenue,

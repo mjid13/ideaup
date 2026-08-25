@@ -46,6 +46,8 @@ export function normalizeToMonthlyArpu(price: number, billingPeriod: BillingPeri
   switch (billingPeriod) {
     case "annual":
       return price / 12;
+    case "quarterly":
+      return price / 3;
     case "monthly":
     case "usage_based":
       return price;
@@ -59,7 +61,7 @@ export function normalizeToMonthlyArpu(price: number, billingPeriod: BillingPeri
 }
 
 export function isRecurring(billingPeriod: BillingPeriod): boolean {
-  return billingPeriod === "monthly" || billingPeriod === "annual" || billingPeriod === "usage_based";
+  return billingPeriod === "monthly" || billingPeriod === "quarterly" || billingPeriod === "annual" || billingPeriod === "usage_based";
 }
 
 /** Guards against NaN/Infinity ever reaching the UI layer. */

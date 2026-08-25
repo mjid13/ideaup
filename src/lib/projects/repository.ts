@@ -10,19 +10,28 @@ import { DomainError } from "./errors";
 
 export interface ProjectSummary { id: string; name: string }
 
+const PROJECT_SELECT_WITH_SHARES = "*, project_shares(access_mode)";
+
 export class SupabaseProjectRepository {
-  constructor(private readonly db: SupabaseClient) {}
+  constructor(private readonly db: SupabaseClient, private readonly viewerId?: string) {}
 
   async getAll(): Promise<Project[]> {
-    const { data, error } = await this.db.from("projects").select("*").order("updated_at", { ascending: false });
+    const { data, error } = await this.db
+      .from("projects")
+      .select(PROJECT_SELECT_WITH_SHARES)
+      .order("updated_at", { ascending: false });
     if (error) throw new DomainError("FORBIDDEN", error.message);
-    return (data as ProjectRow[]).map(projectFromStoredRow);
+    return (data as ProjectRow[]).map((row) => projectFromStoredRow(row, this.viewerId));
   }
 
   async getById(id: string): Promise<Project | null> {
-    const { data, error } = await this.db.from("projects").select("*").eq("id", id).maybeSingle();
+    const { data, error } = await this.db
+      .from("projects")
+      .select(PROJECT_SELECT_WITH_SHARES)
+      .eq("id", id)
+      .maybeSingle();
     if (error) throw new DomainError("FORBIDDEN", error.message);
-    return data ? projectFromStoredRow(data as ProjectRow) : null;
+    return data ? projectFromStoredRow(data as ProjectRow, this.viewerId) : null;
   }
 
   async getSummaries(): Promise<ProjectSummary[]> {
@@ -43,9 +52,9 @@ export class SupabaseProjectRepository {
         data: storedProjectData(project),
         created_at: project.createdAt,
         updated_at: project.updatedAt,
-      }).select("*").single();
+      }).select(PROJECT_SELECT_WITH_SHARES).single();
       if (error) throw new DomainError("VALIDATION_FAILED", error.message);
-      return projectFromStoredRow(data as ProjectRow);
+      return projectFromStoredRow(data as ProjectRow, this.viewerId);
     }
     const { data, error } = await this.db.from("projects").update({
       name: project.basicInfo.name,
@@ -53,12 +62,12 @@ export class SupabaseProjectRepository {
       revision: existing.revision + 1,
       data: storedProjectData(project),
       updated_at: new Date().toISOString(),
-    }).eq("id", project.id).eq("revision", project.revision).select("*").maybeSingle();
+    }).eq("id", project.id).eq("revision", project.revision).select(PROJECT_SELECT_WITH_SHARES).maybeSingle();
     if (error) throw new DomainError("VALIDATION_FAILED", error.message);
     if (!data) throw new DomainError("REVISION_CONFLICT", "Project changed since it was loaded.", {
       currentRevision: existing.revision, updatedAt: existing.updatedAt,
     });
-    return projectFromStoredRow(data as ProjectRow);
+    return projectFromStoredRow(data as ProjectRow, this.viewerId);
   }
 
   async delete(id: string): Promise<void> {

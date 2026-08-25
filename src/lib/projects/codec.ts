@@ -26,9 +26,11 @@ export interface ProjectRow {
   data: unknown;
   created_at: string;
   updated_at: string;
+  user_id?: string;
+  project_shares?: { access_mode: "read" | "write" }[];
 }
 
-export function projectFromRow(row: ProjectRow): Project {
+export function projectFromRow(row: ProjectRow, viewerId?: string): Project {
   const parsed = projectFormSchema.parse(row.data);
   // Backfill optional slices (marketplace, business-building documents) for
   // projects saved before they existed. These must be present (not undefined)
@@ -57,7 +59,7 @@ export function projectFromRow(row: ProjectRow): Project {
     contractTerms: parsed.contractTerms ?? emptyContractTerms(),
     pilotReport: parsed.pilotReport ?? emptyPilotReport(),
   };
-  return projectDocumentSchema.parse({
+  const project = projectDocumentSchema.parse({
     ...backfilled,
     id: row.id,
     schemaVersion: row.schema_version,
@@ -65,6 +67,14 @@ export function projectFromRow(row: ProjectRow): Project {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }) as Project;
+  // Attached after parsing — projectDocumentSchema strips unknown keys, which is
+  // what keeps a client from spoofing these via a saved document body.
+  if (row.user_id) {
+    project.ownerId = row.user_id;
+    const share = row.project_shares?.[0];
+    project.viewerAccess = row.user_id === viewerId ? "owner" : share?.access_mode === "write" ? "write" : "read";
+  }
+  return project;
 }
 
 export function projectData(project: Project) {

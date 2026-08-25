@@ -9,6 +9,25 @@ function contradictionsFor(project: Project): ReturnType<typeof detectContradict
   return detectContradictions(project, calculateMetrics(project));
 }
 
+const tamMessage = "TAM revenue per customer may be inconsistent with the revenue model.";
+
+function tamFinding(project: Project) {
+  return contradictionsFor(project).find((insight) => insight.message === tamMessage);
+}
+
+function revenueStream(
+  overrides: Partial<RevenueStream> & Pick<RevenueStream, "id" | "kind" | "price">
+): RevenueStream {
+  return {
+    name: overrides.id,
+    billingPeriod: overrides.kind === "one_time" ? "one_time" : "monthly",
+    attachRatePct: known(100),
+    unitsPerCustomerPerMonth: known(1),
+    deliveryCostPct: known(0),
+    ...overrides,
+  };
+}
+
 describe("detectContradictions", () => {
   it("flags expected customers that disagree with the acquisition model", () => {
     // 0.42 customers/month x 12 = ~5, but the founder expects 6.
@@ -83,21 +102,21 @@ describe("detectContradictions", () => {
     expect(report.some((i) => i.message === "Customer lifetime contradicts the churn assumption.")).toBe(false);
   });
 
-  it("flags a TAM spend per customer that contradicts the pricing model", () => {
+  it("uses the fallback monthly product price when no revenue streams exist", () => {
     const project: Project = {
       ...exampleProject,
-      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(6000) },
-      pricing: { ...exampleProject.pricing, productPrice: known(50), billingPeriod: "monthly" },
+      revenueStreams: [],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(1800) },
+      pricing: { ...exampleProject.pricing, productPrice: known(100), billingPeriod: "monthly" },
     };
-    const report = contradictionsFor(project);
-    expect(report.some((i) => i.message === "TAM revenue per customer contradicts the pricing model.")).toBe(true);
-    expect(report.some((i) => i.detailParams?.model === 600)).toBe(true);
+    const finding = tamFinding(project);
+    expect(finding).toBeDefined();
+    expect(finding?.detailParams?.model).toBe(1200);
   });
 
   it("accepts a TAM spend aligned with the pricing model", () => {
     // $50/mo x 12 = $600/yr — the example's TAM uses exactly that.
-    const report = contradictionsFor(exampleProject);
-    expect(report.some((i) => i.message === "TAM revenue per customer contradicts the pricing model.")).toBe(false);
+    expect(tamFinding(exampleProject)).toBeUndefined();
   });
 
   it("does not flag the TAM check for marketplace models (take rate is a fraction)", () => {
@@ -111,8 +130,7 @@ describe("detectContradictions", () => {
       },
       market: { ...exampleProject.market, averageAnnualCustomerSpend: known(24000) },
     };
-    const report = contradictionsFor(project);
-    expect(report.some((i) => i.message === "TAM revenue per customer contradicts the pricing model.")).toBe(false);
+    expect(tamFinding(project)).toBeUndefined();
   });
 
   it("flags customers that churn before paying back acquisition cost", () => {
@@ -159,30 +177,110 @@ describe("detectContradictions", () => {
       market: { ...exampleProject.market, averageAnnualCustomerSpend: known(600) },
       pricing: { ...exampleProject.pricing, productPrice: known(600), billingPeriod: "annual" },
     };
-    expect(contradictionsFor(project).some((i) => i.message === "TAM revenue per customer contradicts the pricing model.")).toBe(
-      false
-    );
+    expect(tamFinding(project)).toBeUndefined();
   });
 
-  it("compares TAM spend against the revenue mix's recurring ARPU", () => {
-    const stream: RevenueStream = {
-      id: "s1",
-      name: "Platform",
-      kind: "recurring",
-      price: known(50),
-      billingPeriod: "monthly",
-      attachRatePct: known(100),
-      unitsPerCustomerPerMonth: known(1),
-      deliveryCostPct: known(20),
-    };
+  it("annualizes a single monthly subscription", () => {
     const project: Project = {
       ...exampleProject,
-      revenueStreams: [stream],
+      revenueStreams: [revenueStream({ id: "platform", kind: "recurring", price: known(100) })],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(1800) },
+    };
+    expect(tamFinding(project)?.detailParams?.model).toBe(1200);
+  });
+
+  it("blends multiple recurring streams across billing periods", () => {
+    const project: Project = {
+      ...exampleProject,
+      pricing: { ...exampleProject.pricing, productPrice: known(10) },
+      revenueStreams: [
+        revenueStream({ id: "monthly", kind: "recurring", price: known(100) }),
+        revenueStream({ id: "quarterly", kind: "recurring", price: known(300), billingPeriod: "quarterly" }),
+        revenueStream({ id: "annual", kind: "recurring", price: known(1200), billingPeriod: "annual" }),
+      ],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(3600) },
+    };
+    expect(calculateMetrics(project).revenueMix?.blendedAnnualRevenuePerCustomer).toBe(3600);
+    expect(tamFinding(project)).toBeUndefined();
+  });
+
+  it("adds recurring and one-time revenue without annualizing one-time purchases", () => {
+    const project: Project = {
+      ...exampleProject,
+      revenueStreams: [
+        revenueStream({ id: "subscription", kind: "recurring", price: known(100) }),
+        revenueStream({
+          id: "implementation",
+          kind: "one_time",
+          price: known(600),
+          unitsPerCustomerPerMonth: known(2),
+          attachRatePct: known(50),
+        }),
+      ],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(1800) },
+    };
+    expect(calculateMetrics(project).revenueMix?.blendedAnnualRevenuePerCustomer).toBe(1800);
+    expect(tamFinding(project)).toBeUndefined();
+  });
+
+  it("applies attach rates below 100% to each stream", () => {
+    const project: Project = {
+      ...exampleProject,
+      revenueStreams: [
+        revenueStream({ id: "subscription", kind: "recurring", price: known(200), attachRatePct: known(25) }),
+        revenueStream({
+          id: "assessment",
+          kind: "one_time",
+          price: known(1000),
+          unitsPerCustomerPerMonth: known(2),
+          attachRatePct: known(50),
+        }),
+      ],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(1600) },
+    };
+    expect(calculateMetrics(project).revenueMix?.blendedAnnualRevenuePerCustomer).toBe(1600);
+    expect(tamFinding(project)).toBeUndefined();
+  });
+
+  it.each([
+    { label: "below 20%", marketAnnual: 1199 },
+    { label: "between 20% and 35%", marketAnnual: 1250 },
+    { label: "just below 35%", marketAnnual: 1349 },
+  ])("does not warn when the difference is $label", ({ marketAnnual }) => {
+    const project: Project = {
+      ...exampleProject,
+      revenueStreams: [revenueStream({ id: "implementation", kind: "one_time", price: known(1000) })],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(marketAnnual) },
+    };
+    expect(tamFinding(project)).toBeUndefined();
+  });
+
+  it("warns at a difference of 35% or more and explains the comparison", () => {
+    const project: Project = {
+      ...exampleProject,
+      revenueStreams: [revenueStream({ id: "implementation", kind: "one_time", price: known(1000) })],
+      market: { ...exampleProject.market, averageAnnualCustomerSpend: known(1350) },
+    };
+    const finding = tamFinding(project);
+    expect(finding).toBeDefined();
+    expect(finding?.detailParams).toMatchObject({ tam: 1350, model: 1000 });
+    expect(finding?.detail).toContain("expected blended revenue model");
+  });
+
+  it("does not give a Ramz-style hybrid model a false warning from productPrice x 12", () => {
+    const project: Project = {
+      ...exampleProject,
+      basicInfo: { ...exampleProject.basicInfo, currency: "OMR" },
+      pricing: { ...exampleProject.pricing, productPrice: known(25), billingPeriod: "monthly" },
+      revenueStreams: [
+        revenueStream({ id: "platform", kind: "recurring", price: known(250) }),
+        revenueStream({ id: "support", kind: "recurring", price: known(100), attachRatePct: known(50) }),
+        revenueStream({ id: "implementation", kind: "one_time", price: known(2400) }),
+      ],
       market: { ...exampleProject.market, averageAnnualCustomerSpend: known(6000) },
     };
-    const report = contradictionsFor(project);
-    expect(report.some((i) => i.message === "TAM revenue per customer contradicts the pricing model.")).toBe(true);
-    expect(report.some((i) => i.detailParams?.model === 600)).toBe(true);
+    expect(calculateMetrics(project).revenueMix?.blendedAnnualRevenuePerCustomer).toBe(6000);
+    expect(tamFinding(project)).toBeUndefined();
   });
 });
 

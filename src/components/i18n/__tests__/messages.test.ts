@@ -75,7 +75,7 @@ describe("contradiction message formatting", () => {
   });
 
   it("formats the TAM message's ICU number placeholders in both locales", () => {
-    const key = "Market sizing assumes {currency} {tam, number} per customer per year, but the pricing model implies {currency} {model, number}.";
+    const key = "Market sizing assumes {currency} {tam, number} per customer per year, while the expected blended revenue model implies approximately {currency} {model, number} per customer per year.";
     const en = format("en", key, { currency: "USD", tam: 6000, model: 600 });
     expect(en).toContain("USD");
     expect(en).not.toContain("{");

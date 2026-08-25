@@ -102,7 +102,7 @@ export const marketSchema = z.object({
 
 export const pricingSchema = z.object({
   productPrice: nonNegativeAssumption,
-  billingPeriod: z.enum(["monthly", "annual", "one_time", "usage_based"]),
+  billingPeriod: z.enum(["monthly", "quarterly", "annual", "one_time", "usage_based"]),
   currentCustomers: nonNegativeAssumption,
   expectedCustomers12mo: nonNegativeAssumption,
   expectedMonthlyCustomerGrowthPct: assumptionSchema,
@@ -120,7 +120,7 @@ export const revenueStreamSchema = z.object({
   name: z.string().min(1, "Stream name is required"),
   kind: z.enum(["one_time", "recurring", "usage", "transactional"]),
   price: nonNegativeAssumption,
-  billingPeriod: z.enum(["monthly", "annual", "one_time", "usage_based"]),
+  billingPeriod: z.enum(["monthly", "quarterly", "annual", "one_time", "usage_based"]),
   attachRatePct: assumptionSchema,
   unitsPerCustomerPerMonth: nonNegativeAssumption,
   takeRatePct: optionalAssumptionSchema,

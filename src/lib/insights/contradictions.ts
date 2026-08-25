@@ -1,5 +1,5 @@
 import type { CalculatedMetrics, Insight, Project } from "@/types";
-import { isRecurring, pct, val } from "@/lib/calculations/helpers";
+import { normalizeToMonthlyArpu, pct, val } from "@/lib/calculations/helpers";
 import { customerLevelMonthlyCost } from "@/lib/calculations/unitEconomics";
 import { forecastProject } from "@/lib/calculations/projectForecast";
 
@@ -11,8 +11,8 @@ import { forecastProject } from "@/lib/calculations/projectForecast";
  *   model actually projects at month 12 (the user says "6", the model says 5).
  * - `retention.averageCustomerLifetimeMonths` vs the lifetime the churn rate
  *   implies (a 2% churn and a 48-month lifetime cannot both be right).
- * - `market.averageAnnualCustomerSpend` vs the annualized price of the
- *   financial model (a TAM built on one ARPU and a forecast on another).
+ * - `market.averageAnnualCustomerSpend` vs the blended annual revenue per
+ *   customer from the full revenue model (or simple pricing fallback).
  * - CAC payback vs customer lifetime (customers who leave before they pay for
  *   their own acquisition — the economics contradict the retention story).
  * - Revenue-stream delivery costs vs the Unit Economics cost lines (the same
@@ -55,6 +55,11 @@ function diverges(a: number, b: number): boolean {
   const relative = Math.abs(a - b) / Math.max(a, b, 1);
   return relative > 0.15;
 }
+
+export const TAM_REVENUE_DIFFERENCE_THRESHOLDS_PCT = {
+  informational: 20,
+  contradiction: 35,
+} as const;
 
 /**
  * expectedCustomers12mo vs what the forecast actually produces. The forecast
@@ -123,11 +128,12 @@ function checkLifetimeVsChurn(project: Project, metrics: CalculatedMetrics, find
 
 /**
  * The market sizing builds TAM on `averageAnnualCustomerSpend`; the financial
- * model prices the same customer at `productPrice` (or the revenue mix's
- * recurring ARPU). Both are "what a customer is worth per year" — when they
- * diverge, the market section and the financial section tell the investor
- * different stories. Marketplace take rates are excluded: there the platform's
- * cut is *supposed* to be a fraction of what customers spend.
+ * model values the same customer using every active revenue stream. Recurring
+ * streams are annualized after billing-period normalization; one-time streams
+ * are counted once, including their expected units and attach rate. The simple
+ * product price is only a fallback when no stream carries valid price data.
+ * Marketplace take rates are excluded: there the platform's cut is *supposed*
+ * to be a fraction of what customers spend.
  */
 function checkTamArpuVsPricing(project: Project, metrics: CalculatedMetrics, findings: Insight[]): void {
   if (metrics.marketplace !== null) return;
@@ -136,18 +142,21 @@ function checkTamArpuVsPricing(project: Project, metrics: CalculatedMetrics, fin
   if (!spend || spend.quality === "unknown" || val(spend) <= 0) return;
 
   const mix = metrics.revenueMix;
-  const recurringArpu =
-    mix && mix.recurringArpu > 0 ? mix.recurringArpu : isRecurring(project.pricing.billingPeriod) ? metrics.revenue.monthlyArpu : 0;
-  if (recurringArpu <= 0) return;
+  const modelAnnual = mix
+    ? mix.blendedAnnualRevenuePerCustomer
+    : project.pricing.billingPeriod === "one_time"
+      ? val(project.pricing.productPrice)
+      : normalizeToMonthlyArpu(val(project.pricing.productPrice), project.pricing.billingPeriod) * 12;
+  if (modelAnnual <= 0) return;
 
-  const modelAnnual = recurringArpu * 12;
   const marketAnnual = val(spend);
-  if (!diverges(marketAnnual, modelAnnual)) return;
+  const differencePct = (Math.abs(marketAnnual - modelAnnual) / modelAnnual) * 100;
+  if (differencePct < TAM_REVENUE_DIFFERENCE_THRESHOLDS_PCT.contradiction) return;
 
   findings.push(
     contradiction(
-      "TAM revenue per customer contradicts the pricing model.",
-      "Market sizing assumes {currency} {tam, number} per customer per year, but the pricing model implies {currency} {model, number}.",
+      "TAM revenue per customer may be inconsistent with the revenue model.",
+      "Market sizing assumes {currency} {tam, number} per customer per year, while the expected blended revenue model implies approximately {currency} {model, number} per customer per year.",
       undefined,
       { currency: project.basicInfo.currency, tam: marketAnnual, model: modelAnnual }
     )

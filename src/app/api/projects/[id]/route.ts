@@ -12,10 +12,10 @@ async function context() {
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, authenticated } = await context();
+  const { supabase, authenticated, userId } = await context();
   if (!authenticated) return Response.json({ error: { code: "FORBIDDEN", message: "Sign in required." } }, { status: 401 });
   try {
-    const project = await new SupabaseProjectRepository(supabase).getById((await params).id);
+    const project = await new SupabaseProjectRepository(supabase, userId).getById((await params).id);
     return project ? Response.json(project) : Response.json({ error: { code: "NOT_FOUND", message: "Project not found." } }, { status: 404 });
   } catch {
     return Response.json({ error: { code: "INTERNAL_ERROR", message: "Project data is temporarily unavailable." } }, { status: 500 });
@@ -30,7 +30,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({ error: { code: "VALIDATION_FAILED", message: "Invalid project.", issues: parsed.error?.issues } }, { status: 400 });
   }
   try {
-    const repository = new SupabaseProjectRepository(supabase);
+    const repository = new SupabaseProjectRepository(supabase, userId);
     const before = await repository.getById(parsed.data.id);
     const saved = await repository.save(parsed.data);
     const action = request.headers.get("x-project-action") === "import" ? "import" : before ? "update" : "create";

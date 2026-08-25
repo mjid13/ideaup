@@ -136,8 +136,11 @@ export default function ProjectsPage() {
                           <Link href={`/project/${project.id}`} className="font-medium text-foreground hover:underline">
                             {project.basicInfo.name || t("Untitled project")}
                           </Link>
-                          <div className="mt-1">
+                          <div className="mt-1 flex flex-wrap gap-1">
                             <Badge variant="secondary">{t(BUSINESS_MODEL_LABELS[project.basicInfo.businessModel])}</Badge>
+                            {project.viewerAccess && project.viewerAccess !== "owner" && (
+                              <Badge variant="outline">{project.viewerAccess === "write" ? t("Shared • Can edit") : t("Shared • Read only")}</Badge>
+                            )}
                           </div>
                         </div>
                       </label>
@@ -165,9 +168,11 @@ export default function ProjectsPage() {
                       <Button variant="ghost" size="icon-sm" onClick={() => handleDuplicate(project)} aria-label={t("Duplicate")}>
                         <Copy />
                       </Button>
-                      <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(project.id)} aria-label={t("Delete")}>
-                        <Trash2 />
-                      </Button>
+                      {(!project.viewerAccess || project.viewerAccess === "owner") && (
+                        <Button variant="ghost" size="icon-sm" onClick={() => handleDelete(project.id)} aria-label={t("Delete")}>
+                          <Trash2 />
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -24,6 +24,7 @@ import { ForecastCharts } from "./ForecastCharts";
 import { EfficiencyPanel } from "./EfficiencyPanel";
 import { FundingRequirementPanel } from "./FundingRequirementPanel";
 import { ExportMenu } from "./ExportMenu";
+import { ShareDialog } from "./ShareDialog";
 import type { Project } from "@/types";
 
 export function ProjectDashboard({ project }: { project: Project }) {
@@ -41,14 +42,20 @@ export function ProjectDashboard({ project }: { project: Project }) {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight text-foreground">{project.basicInfo.name || t("Untitled project")}</h1>
             <Badge variant="secondary">{t(BUSINESS_MODEL_LABELS[project.basicInfo.businessModel])}</Badge>
+            {project.viewerAccess && project.viewerAccess !== "owner" && (
+              <Badge variant="outline">{project.viewerAccess === "write" ? t("Shared with you • Can edit") : t("Shared with you • Read only")}</Badge>
+            )}
           </div>
           {project.basicInfo.description && <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{project.basicInfo.description}</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <Button variant="outline" size="sm" render={<Link href={`/project/${project.id}/edit`} />}>
-            <Pencil /> {t("Edit assumptions")}
-          </Button>
+          {project.viewerAccess !== "read" && (
+            <Button variant="outline" size="sm" render={<Link href={`/project/${project.id}/edit`} />}>
+              <Pencil /> {t("Edit assumptions")}
+            </Button>
+          )}
           <ExportMenu project={project} />
+          <ShareDialog project={project} />
         </div>
       </div>
 

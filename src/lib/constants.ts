@@ -22,6 +22,7 @@ export const CURRENCY_OPTIONS: Array<{ value: Currency; label: string }> = [
 
 export const BILLING_PERIOD_OPTIONS: Array<{ value: BillingPeriod; label: string }> = [
   { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
   { value: "annual", label: "Annual" },
   { value: "one_time", label: "One-time" },
   { value: "usage_based", label: "Usage-based" },

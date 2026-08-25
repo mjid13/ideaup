@@ -14,7 +14,7 @@ export type BusinessModel =
   | "usage_based"
   | "other";
 
-export type BillingPeriod = "monthly" | "annual" | "one_time" | "usage_based";
+export type BillingPeriod = "monthly" | "quarterly" | "annual" | "one_time" | "usage_based";
 
 /** Marks whether an input represents a real, estimated, or missing value. */
 export type DataQuality = "known" | "estimated" | "unknown";
@@ -637,6 +637,10 @@ export interface Project {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  /** Owner's user id. Server-populated; never accepted from a saved document. */
+  ownerId?: string;
+  /** Current viewer's effective access level. Server-populated; never accepted from a saved document. */
+  viewerAccess?: "owner" | "read" | "write";
   basicInfo: BasicInfo;
   market: MarketAssumptions;
   pricing: PricingAssumptions;
@@ -829,6 +833,8 @@ export interface RevenueMixMetrics {
   recurringArpu: number;
   /** One-time revenue collected per newly acquired customer. */
   oneTimeRevenuePerNewCustomer: number;
+  /** Recurring ARPU annualized plus each one-time purchase counted once per customer. */
+  blendedAnnualRevenuePerCustomer: number;
   monthlyRecurringRevenue: number;
   monthlyOneTimeRevenue: number;
   totalMonthlyRevenue: number;
