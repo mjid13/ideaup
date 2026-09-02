@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "IdeaUp",
-  description: "Evaluate market size, unit economics, profitability, runway, and overall product viability before we build.",
+  description: "Stress-test a business idea with transparent economics, forecasts, uncertainty analysis, and an evidence-backed next decision.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

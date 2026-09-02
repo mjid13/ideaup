@@ -1,15 +1,22 @@
 # IdeaUp
 
-Evaluate the *economics* of a startup idea — market size, unit economics,
-profitability, runway, validation, and risk — from a small set of assumptions.
-The tool does not predict success. It scores the quality of your current
-assumptions and tells you what to fix, validate, or test next.
+Stress-test a business idea before committing time and capital. IdeaUp turns
+structured assumptions about the market, revenue model, acquisition, retention,
+costs, funding, evidence, team, and risk into transparent economics, forecasts,
+uncertainty analysis, and a practical next decision.
 
-**Few inputs → useful derived metrics → transparent score → clear risks → actionable next steps.**
+The tool does not predict success. It keeps viability separate from confidence,
+shows which assumptions drive the result, and helps decide what to fix,
+validate, build, or stop next.
+
+**Structured assumptions → traceable metrics → stress-tested forecast → clear
+decision → reusable business documents.**
 
 ## Contents
 
+- [Product capabilities](#product-capabilities)
 - [Architecture](#architecture)
+- [Application data flow](#application-data-flow)
 - [Setup](#setup)
 - [Calculation formulas](#calculation-formulas)
 - [Scoring methodology](#scoring-methodology)
@@ -19,6 +26,33 @@ assumptions and tells you what to fix, validate, or test next.
 - [Hosted MCP capabilities](#hosted-mcp-capabilities)
 - [Testing](#testing)
 - [License](#license)
+
+## Product capabilities
+
+- **Flexible business modeling** — eight business-model labels, six currencies,
+  direct/top-down/bottom-up-funnel market sizing, and any mix of recurring,
+  one-time, usage, transactional, or marketplace revenue.
+- **Evidence-aware assumptions** — every numeric input is marked known,
+  estimated, or unknown and may carry a low/most-likely/high range instead of a
+  falsely precise point estimate.
+- **Decision dashboard** — market, revenue, acquisition, retention, unit
+  economics, concentration, operating cost, break-even, runway, funding,
+  dilution, and recurring-revenue efficiency metrics.
+- **Stress testing** — 12/24/36-month forecasts, bear/base/bull scenarios,
+  sensitivity ranking, deterministic contradiction detection, and reproducible
+  Monte Carlo simulation across ranged assumptions.
+- **Separate decision signals** — a transparent 0-100 viability score, an
+  evidence confidence percentage, validation maturity Stage 0-5, benchmarked
+  category scores, risks, recommended actions, and a next-step verdict.
+- **Business-building documents** — Business One-Pager, ICP, Value Proposition
+  & Offer, Customer Validation Plan, Financial Model, MVP Scope, Go-To-Market
+  Plan, Sales Documents, Contract Terms, and Pilot Report. Derived sections reuse
+  project data while narrative fields remain editable.
+- **Portfolio workflows** — save, duplicate, compare, import, and export projects
+  as JSON or CSV. English and Arabic interfaces are included.
+- **AI/client workflows** — an optional OAuth-protected hosted MCP server exposes
+  scoped analysis, scenarios, investor and lender assessments, document drafts,
+  and controlled project updates.
 
 ## Architecture
 
@@ -40,7 +74,7 @@ Business logic is kept entirely out of React components:
     /audience              Investor / lender audience views
     /settings              MCP connection management
     /i18n                  Translation provider and helpers
-    /layout                Header
+    /layout                Header and footer
   /lib
     /calculations          Pure financial calculation engine (TAM/SAM/SOM, CAC, LTV,
                            break-even, forecasting, scenarios, Monte Carlo, sensitivity)
@@ -55,6 +89,9 @@ Business logic is kept entirely out of React components:
     /documents             Document registry, derivation, status
     /export                Project export/import
     /investor, /lender     Investor summary and lender assessment logic
+    /security              Application-layer project encryption
+    /http                  Request-origin handling for redirects
+    /forms                 Shared linked-field behavior
     /validation            Zod schemas for the wizard and stored documents
     format.ts              Currency/percentage/multiple/month formatting helpers
     example.ts             Pre-populated example project
@@ -65,6 +102,34 @@ Business logic is kept entirely out of React components:
 
 Every calculation is a pure function of typed inputs — no React, no I/O — and is
 unit tested independently of the UI (see [Testing](#testing)).
+
+## Application data flow
+
+The UI does not fetch Supabase directly. Pages and components call the shared
+`ProjectRepository` contract:
+
+```text
+page/component
+  → projectRepository
+    → localStorage in development when Supabase is absent
+    → fetch('/api/projects[...]', { cache: 'no-store' }) when Supabase is configured
+      → authenticated Next.js route handler
+        → SupabaseProjectRepository
+          → Postgres + RLS + revision checks + audit events
+```
+
+`BrowserProjectRepository` owns the project fetchers: list and detail reads use
+`GET`, saves/imports use `PUT`, and deletion uses `DELETE`. The route handlers
+verify Supabase claims, validate complete project documents with Zod, return a
+structured error response, and reject stale revisions with a conflict instead
+of silently overwriting newer work. Project calculations, scoring, insights,
+forecasts, and document derivation then run locally as pure functions; rendering
+a dashboard does not trigger a second analytics API.
+
+MCP uses a separate `/mcp` route with bearer authentication, per-client project
+grants, access mode, optional create permission, write gates, rate limits, and
+idempotency/revision checks. Connection changes are submitted through
+`/api/settings/connections` and recorded as project audit events.
 
 ## Setup
 
@@ -100,7 +165,7 @@ for deploying the optional hosted MCP server.
 ## Calculation formulas
 
 All formulas live in `/src/lib/calculations` as small, single-purpose modules.
-The most important ones, verbatim:
+The most important ones, summarized:
 
 | Metric | Formula | Module |
 |---|---|---|
@@ -108,6 +173,9 @@ The most important ones, verbatim:
 | SAM | TAM × Addressable Market % | `market.ts` |
 | SOM | SAM × Obtainable Market % | `market.ts` |
 | Required penetration | Target Customers / Addressable Customers | `market.ts` |
+| Marketplace GMV | Customers × Transactions per Customer × Average Order Value | `marketplace.ts` |
+| Marketplace revenue | GMV × Take Rate % | `marketplace.ts` |
+| Stream revenue | Price × Attach Rate × Units × Applicable Customer Base | `revenueStreams.ts` |
 | MRR | Monthly Customers × Monthly ARPU | `pricing.ts` |
 | ARR | MRR × 12 | `pricing.ts` |
 | CAC | (Marketing Spend + Sales Spend) / New Customers | `acquisition.ts` |
@@ -120,6 +188,13 @@ The most important ones, verbatim:
 | Runway (months) | Available Cash / Monthly Burn | `funding.ts` |
 | Break-even customers | Fixed Monthly Costs / Contribution Margin Per Customer | `breakeven.ts` |
 | Break-even revenue | Break-even Customers × ARPU | `breakeven.ts` |
+| Required financing | Spend to Milestone + Safety Buffer + Working Capital + CAPEX − Receipts − Cash | `fundingRequirement.ts` |
+| Recommended raise | Required Financing × (1 + Contingency %) rounded up | `fundingRequirement.ts` |
+| Post-money valuation | Pre-money Valuation + Investment | `dilution.ts` |
+| Equity given up | Investment / Post-money Valuation | `dilution.ts` |
+| Rule of 40 | Projected Annual Growth % + Projected Profit Margin % | `efficiency.ts` |
+| Burn multiple | 12-month Net Burn / Net New ARR | `efficiency.ts` |
+| Debt-service coverage | Cash Available for Debt Service / Debt Service | `debt.ts` |
 
 **Edge cases** (zero churn, zero CAC, zero revenue, negative contribution margin,
 already-profitable businesses, one-time/annual/usage-based billing) are handled
@@ -127,12 +202,19 @@ explicitly in each module — see `helpers.ts` (`safeDiv`, `finiteOrZero`) and t
 accompanying `__tests__` files. The UI never renders `NaN`, `Infinity`, or
 `undefined`; `/src/lib/format.ts` guards every formatter.
 
+Market sizing can also use direct TAM/SAM/SOM values or a bottom-up qualification
+funnel with count/percentage stages and explicit SAM/SOM checkpoints. Hybrid
+revenue streams are separated into recurring and acquisition-driven cash flows,
+then blended by their own delivery margins; marketplace take-rate economics are
+modeled from GMV rather than treated like a subscription.
+
 Forecasts (`forecast.ts`, `projectForecast.ts`) generate a month-by-month
-projection (customers, MRR, revenue, costs, cash balance) for any horizon;
-12/24/36-month views and the scenario engine (`scenarios.ts`) all call the same
-function with different inputs. The sensitivity engine (`sensitivity.ts`) flexes
-price/CAC/churn/growth ±50% and re-runs the full scoring pipeline to rank which
-assumptions move the score the most.
+projection of cohorts, customers, expansion/contraction, MRR, one-time and
+recurring revenue, variable costs, operating expenses, net cash flow, and cash
+balance for any horizon. The 12/24/36-month views and scenario engine
+(`scenarios.ts`) call the same functions with different inputs. The sensitivity
+engine (`sensitivity.ts`) flexes price/CAC/churn/growth ±50% and re-runs the full
+scoring pipeline to rank the assumptions that move the result most.
 
 ### Assumption ranges and Monte Carlo
 
@@ -306,13 +388,12 @@ read/write mode, and — for creation — the owner allowed it. See
 npm run test
 ```
 
-228 vitest test cases cover the calculation engine (TAM/SAM/SOM, CAC, LTV,
-LTV:CAC, gross margin, break-even, runway, forecasts, scenarios — including
-zero-churn, zero-CAC, zero-revenue, and negative-margin edge cases), the
-scoring engine (category boundaries, weight sums, worst-case/best-case
-scores), the insights engine, and the formatting helpers. Financial
-correctness is treated as more important than visual polish, per the project's
-own principle.
+329 vitest test cases cover the calculation, forecast, funding, uncertainty,
+scoring, insight, document, persistence, encryption, HTTP, i18n, export/import,
+and MCP layers. The suite includes zero-churn, zero-CAC, zero-revenue,
+negative-margin, authorization, rate-limit, conflict, and encryption edge cases.
+Financial correctness is treated as more important than visual polish, per the
+project's own principle.
 
 ## License
 
