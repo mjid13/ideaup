@@ -9,7 +9,7 @@ import {
 } from "@/lib/projects/listMutations";
 import { DomainError } from "@/lib/projects/errors";
 import { createEmptyProject } from "@/lib/storage/factory";
-import { projectFormSchema } from "@/lib/validation/projectSchema";
+import { projectDocumentSchema, projectFormSchema } from "@/lib/validation/projectSchema";
 import { parseImportBundle } from "@/lib/export/importData";
 import type { Project } from "@/types";
 import type { McpToolContext } from "../context";
@@ -114,7 +114,7 @@ export function registerWriteTools(server: McpServer, ctx: McpToolContext) {
     }), outputSchema: jsonOutput, annotations: writeHints,
   }, guard(async ({ idempotency_key, basic, assumptions }) => {
     const empty = createEmptyProject(basic.businessModel, basic.currency);
-    const candidate = projectFormSchema.parse({ ...empty, ...assumptions, basicInfo: basic });
+    const candidate = projectDocumentSchema.parse({ ...empty, ...assumptions, basicInfo: basic });
     return create(candidate as Project, idempotency_key, "Project created.");
   }));
 
