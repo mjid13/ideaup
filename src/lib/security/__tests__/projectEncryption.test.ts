@@ -22,6 +22,29 @@ afterEach(() => {
 });
 
 describe("project encryption", () => {
+  it("distinguishes missing keys, authentication failures, and malformed envelopes without exposing secrets", () => {
+    const encrypted = encodeProjectData(projectId, { secret: "private project contents" });
+    const reason = (value: unknown) => {
+      try {
+        decodeProjectData(projectId, value);
+        throw new Error("Expected decryption to fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(DomainError);
+        expect((error as Error).message).toBe("Project data is temporarily unavailable.");
+        return (error as DomainError).details;
+      }
+    };
+    process.env.PROJECT_ENCRYPTION_KEYS = JSON.stringify({ other: key });
+    process.env.PROJECT_ENCRYPTION_ACTIVE_KEY_ID = "other";
+    expect(reason(encrypted)).toEqual({ encryptionReason: "missing_decryption_key" });
+
+    process.env.PROJECT_ENCRYPTION_ACTIVE_KEY_ID = "test-v1";
+    process.env.PROJECT_ENCRYPTION_KEYS = JSON.stringify({ "test-v1": Buffer.alloc(32, 8).toString("base64") });
+    expect(reason(encrypted)).toEqual({ encryptionReason: "decryption_failed" });
+    expect(reason({ _ideaup_encrypted: true })).toEqual({ encryptionReason: "invalid_envelope" });
+    expect(reason({ ...(encrypted as object), nonce: "invalid!" })).toEqual({ encryptionReason: "invalid_encoding" });
+  });
+
   it("round-trips Unicode project data without deterministic ciphertext", () => {
     const value = { name: "مشروع تجريبي", notes: "line one\nline two", values: [1, true, null] };
     const first = encodeProjectData(projectId, value);

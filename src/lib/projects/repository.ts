@@ -31,6 +31,9 @@ export class SupabaseProjectRepository {
           projectId: row.id,
           errorType: error instanceof ZodError ? "validation"
             : error instanceof DomainError ? error.code : "unexpected",
+          ...(error instanceof DomainError && typeof error.details?.encryptionReason === "string" ? {
+            encryptionReason: error.details.encryptionReason,
+          } : {}),
           ...(error instanceof ZodError ? {
             issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
           } : {}),

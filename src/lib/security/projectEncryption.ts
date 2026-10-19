@@ -25,8 +25,11 @@ const KEY_ID = /^[A-Za-z0-9._-]{1,100}$/;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 
-function unavailable(): DomainError {
-  return new DomainError("INTERNAL_ERROR", "Project data is temporarily unavailable.");
+type EncryptionFailureReason = "invalid_configuration" | "invalid_envelope"
+  | "missing_decryption_key" | "invalid_encoding" | "decryption_failed" | "invalid_plaintext";
+
+function unavailable(reason: EncryptionFailureReason = "invalid_configuration"): DomainError {
+  return new DomainError("INTERNAL_ERROR", "Project data is temporarily unavailable.", { encryptionReason: reason });
 }
 
 function decodeKey(value: unknown): Buffer {
@@ -84,16 +87,16 @@ function parseEnvelope(value: unknown): EncryptedProjectEnvelope {
     || !KEY_ID.test(value.keyId)
     || typeof value.nonce !== "string"
     || typeof value.ciphertext !== "string"
-    || typeof value.tag !== "string") throw unavailable();
+    || typeof value.tag !== "string") throw unavailable("invalid_envelope");
   return value as unknown as EncryptedProjectEnvelope;
 }
 
 function decodeBase64Url(value: string, expectedBytes?: number): Buffer {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw unavailable();
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw unavailable("invalid_encoding");
   const decoded = Buffer.from(value, "base64url");
   if (decoded.toString("base64url") !== value
     || (expectedBytes !== undefined && decoded.length !== expectedBytes)
-    || decoded.length === 0) throw unavailable();
+    || decoded.length === 0) throw unavailable("invalid_encoding");
   return decoded;
 }
 
@@ -133,7 +136,8 @@ export function decodeProjectData(projectId: string, value: unknown): unknown {
   const envelope = parseEnvelope(value);
   const config = projectEncryptionConfig();
   const key = config.keys.get(envelope.keyId);
-  if (!key) throw unavailable();
+  if (!key) throw unavailable("missing_decryption_key");
+  let plaintext: string;
   try {
     const nonce = decodeBase64Url(envelope.nonce, NONCE_BYTES);
     const tag = decodeBase64Url(envelope.tag, TAG_BYTES);
@@ -141,10 +145,15 @@ export function decodeProjectData(projectId: string, value: unknown): unknown {
     const decipher = createDecipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
     decipher.setAAD(aad(projectId));
     decipher.setAuthTag(tag);
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+  } catch (error) {
+    if (error instanceof DomainError) throw error;
+    throw unavailable("decryption_failed");
+  }
+  try {
     return JSON.parse(plaintext) as unknown;
   } catch {
-    throw unavailable();
+    throw unavailable("invalid_plaintext");
   }
 }
 
