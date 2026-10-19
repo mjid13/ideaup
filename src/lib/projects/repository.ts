@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ZodError } from "zod";
 import { projectDocumentSchema } from "@/lib/validation/projectSchema";
 import type { Project } from "@/types";
 import { assertProjectWritesAllowed } from "@/lib/security/projectEncryption";
@@ -15,8 +16,28 @@ export class SupabaseProjectRepository {
 
   async getAll(): Promise<Project[]> {
     const { data, error } = await this.db.from("projects").select("*").order("updated_at", { ascending: false });
-    if (error) throw new DomainError("FORBIDDEN", error.message);
-    return (data as ProjectRow[]).map(projectFromStoredRow);
+    if (error) {
+      console.error("project_list_failed", { stage: "query", databaseCode: error.code });
+      throw new DomainError("FORBIDDEN", error.message);
+    }
+    return (data as ProjectRow[]).map((row) => {
+      try {
+        return projectFromStoredRow(row);
+      } catch (error) {
+        // Log field paths and error codes only: validation messages and raw
+        // exceptions can contain project contents or other sensitive values.
+        console.error("project_list_failed", {
+          stage: "decode",
+          projectId: row.id,
+          errorType: error instanceof ZodError ? "validation"
+            : error instanceof DomainError ? error.code : "unexpected",
+          ...(error instanceof ZodError ? {
+            issues: error.issues.map((issue) => ({ path: issue.path, code: issue.code })),
+          } : {}),
+        });
+        throw error;
+      }
+    });
   }
 
   async getById(id: string): Promise<Project | null> {
